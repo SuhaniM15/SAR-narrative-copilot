@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_model: str = "llama-3.3-70b-versatile"
     environment: str = "development"
+    knowledge_dir: str = str(DATA_DIR / "knowledge")
+    chroma_dir: str = str(DATA_DIR / "chroma")
+    rag_top_k: int = 3
+    chroma_collection: str = "sar_policy_knowledge"
 
 
 @lru_cache
