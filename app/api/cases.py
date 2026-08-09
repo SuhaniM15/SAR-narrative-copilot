@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 
+from app.adapters.llm import LLMAdapter
 from app.api.deps import CurrentUser, DbSession, require_roles
+from app.api.llm_deps import get_llm
 from app.models.audit import AuditEvent
 from app.models.case import Case, NarrativeDraft
 from app.models.user import User, UserRole
@@ -13,10 +15,11 @@ from app.schemas import (
     CaseOut,
     DraftOut,
     DraftUpdate,
-    MessageOut,
 )
-from app.services import cases as case_service
+from app.services.drafting import DraftValidationError, UpstreamLLMError
+from app.services.generation import GenerationNotAllowed, generate_and_persist_draft
 from app.services.audit import log_event
+from app.services import cases as case_service
 
 router = APIRouter(prefix="/cases", tags=["cases"])
 
@@ -162,16 +165,22 @@ def case_audit_trail(
     return list(db.scalars(stmt).all())
 
 
-@router.post("/{case_id}/generate-draft", response_model=MessageOut)
-def generate_draft_placeholder(
+@router.post("/{case_id}/generate-draft", response_model=DraftOut)
+def generate_draft(
     case_id: int,
     db: DbSession,
-    _: User = Depends(require_roles(UserRole.ANALYST, UserRole.ADMIN)),
-) -> MessageOut:
+    current_user: User = Depends(require_roles(UserRole.ANALYST, UserRole.ADMIN)),
+    llm: LLMAdapter = Depends(get_llm),
+) -> NarrativeDraft:
+    """Evidence pack → RAG → Groq → grounded NarrativeDraft (versioned) + audit."""
     case = case_service.get_case(db, case_id)
     if not case:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found")
-    return MessageOut(
-        detail="Draft generation lands in Week 2 (RAG + Groq adapter).",
-        data={"case_id": case.id, "status": case.status},
-    )
+    try:
+        return generate_and_persist_draft(db, case, current_user, llm=llm)
+    except (GenerationNotAllowed, DraftValidationError) as exc:
+        # Client/data issues: bad status, no txns, empty retrieval, hallucinated txn refs
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except UpstreamLLMError as exc:
+        # Provider/model issues: timeout, API error, malformed LLM payload
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc

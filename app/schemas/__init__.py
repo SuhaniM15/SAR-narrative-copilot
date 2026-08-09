@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 class Token(BaseModel):
@@ -133,7 +133,17 @@ class DraftOut(BaseModel):
 
 
 class CaseDecision(BaseModel):
-    comment: str = ""
+    """Reviewer decision payload — comment is required for audit defensibility."""
+
+    comment: str = Field(min_length=1, description="Required reviewer rationale")
+
+    @field_validator("comment")
+    @classmethod
+    def comment_must_be_non_blank(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("comment must not be blank")
+        return cleaned
 
 
 class AuditEventOut(BaseModel):

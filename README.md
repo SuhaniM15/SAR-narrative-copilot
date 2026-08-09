@@ -2,7 +2,7 @@
 
 Analyst-in-the-loop system that turns post-alert AML cases into FinCEN-style **5 Ws + How** SAR drafts, with citations and an append-only audit trail.
 
-> Status: **Week 1 foundation** — auth, cases, audit. Draft generation (RAG + Groq) is Week 2.
+> Status: **Week 2–3 vertical slice** · API + Streamlit + Docker Compose.
 
 ## Why this exists
 
@@ -71,10 +71,46 @@ sar-copilot/
 │   ├── services/     # Business logic + audit writer
 │   └── adapters/     # LLM/RAG (Week 2)
 ├── data/knowledge/   # Curated typology docs for RAG
+├── ui/               # Streamlit thin client
 ├── docs/PRD.md
-├── scripts/seed.py
+├── scripts/          # seed, ingest_knowledge, docker_entrypoint
+├── Dockerfile
+├── docker-compose.yml
 └── tests/
 ```
+
+## Streamlit UI (local)
+
+Keep the API running, then in another terminal:
+
+```bash
+streamlit run ui/app.py
+```
+
+Login with seeded users (e.g. `analyst@example.com` / `AnalystPass123!`).
+API base in the login form: `http://127.0.0.1:8000`.
+
+## Docker Compose
+
+One stack: API on `:8000`, Streamlit on `:8501`. SQLite + Chroma live under `./data` (bind-mounted).
+
+```bash
+copy .env.example .env
+# set GROQ_API_KEY in .env
+
+docker compose up --build
+```
+
+| URL | What |
+|---|---|
+| http://localhost:8000/docs | Swagger |
+| http://localhost:8501 | Streamlit UI |
+
+On first start the API container seeds users/sample case and ingests `data/knowledge` into Chroma (can take a minute while embeddings load).
+
+**UI API base when using Compose:** leave `http://api:8000` (Streamlit talks to the API over the Compose network). Do not use `127.0.0.1:8000` inside the UI container.
+
+Stop: `docker compose down` (data in `./data` is kept).
 
 ## Tests
 
@@ -84,8 +120,8 @@ pytest -q
 
 ## Roadmap
 
-- **Week 1 (done scaffold):** users, cases, transactions, audit, RBAC
-- **Week 2:** evidence pack → RAG → Groq structured 5W draft + citations
-- **Week 3:** Streamlit review UI, Docker, README polish
+- **Week 1 (done):** users, cases, transactions, audit, RBAC
+- **Week 2 (done):** evidence pack → RAG → Groq structured 5W draft + citations
+- **Week 3 (done):** Streamlit review UI + Docker Compose
 
 See [docs/PRD.md](docs/PRD.md) for scope and non-goals.
