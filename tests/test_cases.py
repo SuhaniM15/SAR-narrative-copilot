@@ -84,3 +84,38 @@ def test_approve_flow(client, analyst_token, reviewer_token):
     )
     assert approved.status_code == 200
     assert approved.json()["status"] == "approved"
+
+
+def test_approve_requires_non_empty_comment(client, analyst_token, reviewer_token):
+    created = client.post(
+        "/api/v1/cases",
+        json={
+            "external_alert_id": "ALT-COMMENT-REQ",
+            "title": "Comment required",
+            "alert_reason": "Structuring",
+            "customer_id": "C3",
+            "customer_name": "Sam Lee",
+            "customer_occupation": "Analyst",
+            "customer_expected_activity": "Payroll",
+        },
+        headers={"Authorization": f"Bearer {analyst_token}"},
+    )
+    case_id = created.json()["id"]
+    client.post(
+        f"/api/v1/cases/{case_id}/submit",
+        headers={"Authorization": f"Bearer {analyst_token}"},
+    )
+
+    missing = client.post(
+        f"/api/v1/cases/{case_id}/approve",
+        json={},
+        headers={"Authorization": f"Bearer {reviewer_token}"},
+    )
+    assert missing.status_code == 422
+
+    blank = client.post(
+        f"/api/v1/cases/{case_id}/approve",
+        json={"comment": "   "},
+        headers={"Authorization": f"Bearer {reviewer_token}"},
+    )
+    assert blank.status_code == 422

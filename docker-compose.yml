@@ -1,0 +1,39 @@
+# One-command demo stack: API (:8000) + Streamlit UI (:8501)
+#
+#   copy .env.example .env   # set GROQ_API_KEY
+#   docker compose up --build
+#
+# Swagger:  http://localhost:8000/docs
+# UI:       http://localhost:8501
+# In the UI login form, leave API base as http://api:8000 (Compose network).
+
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: sqlite:////app/data/sar_copilot.db
+      CHROMA_DIR: /app/data/chroma
+      KNOWLEDGE_DIR: /app/data/knowledge
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 90s
+
+  ui:
+    build: .
+    entrypoint: ["streamlit", "run", "ui/app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+    ports:
+      - "8501:8501"
+    environment:
+      SAR_API_BASE_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy

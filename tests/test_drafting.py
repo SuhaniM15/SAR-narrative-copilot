@@ -13,7 +13,7 @@ from app.schemas.evidence import (
     EvidenceTransaction,
 )
 from app.schemas.retrieval import Citation, RetrievalResult
-from app.services.drafting import DraftGenerationError, generate_structured_draft
+from app.services.drafting import DraftValidationError, generate_structured_draft
 from app.services.grounding import GroundingError, validate_narrative_grounding
 from app.services.prompting import build_draft_messages
 from datetime import datetime, timezone
@@ -161,5 +161,5 @@ def test_generate_structured_draft_fails_on_hallucinated_txn():
         }
     )
     llm = FakeLLMAdapter(bad)
-    with pytest.raises(DraftGenerationError, match="allow-list"):
+    with pytest.raises(DraftValidationError, match="allow-list"):
         generate_structured_draft(_pack(), _retrieval(), llm=llm)

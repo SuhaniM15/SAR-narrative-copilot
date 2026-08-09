@@ -11,5 +11,6 @@ python-multipart>=0.0.17
 python-dotenv>=1.0.1
 httpx>=0.28.0
 chromadb>=0.5.23
+streamlit>=1.40.0
 pytest>=8.3.0
 pytest-asyncio>=0.24.0
