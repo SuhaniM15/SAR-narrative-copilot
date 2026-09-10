@@ -3,6 +3,7 @@
 Why a separate service?
 - Keeps prompt/RAG code free of SQLAlchemy details
 - Makes grounding rules explicit (allowed_txn_refs)
+- Runs deterministic typology findings before the LLM
 - Lets us unit-test the brief without calling an LLM
 """
 
@@ -12,7 +13,9 @@ from app.schemas.evidence import (
     EvidenceCustomer,
     EvidencePack,
     EvidenceTransaction,
+    TypologyFinding,
 )
+from app.services.rules import evaluate_typology_rules
 
 # Explicit map beats blind string-splitting (avoids breaking future typology names).
 _TYPOLOGY_TO_TAGS: dict[str, list[str]] = {
@@ -49,6 +52,7 @@ def build_evidence_pack(case: Case) -> EvidencePack:
     ]
     allowed_txn_refs = [txn.txn_ref for txn in transactions]
     typologies = normalize_typologies(case.typology)
+    findings = evaluate_typology_rules(transactions, typologies=typologies)
 
     return EvidencePack(
         case=EvidenceCaseMeta(
@@ -71,8 +75,9 @@ def build_evidence_pack(case: Case) -> EvidencePack:
         transactions=transactions,
         typologies=typologies,
         allowed_txn_refs=allowed_txn_refs,
-        rag_query=_build_rag_query(case, typologies, transactions),
-        llm_context=_build_llm_context(case, typologies, transactions),
+        findings=findings,
+        rag_query=_build_rag_query(case, typologies, transactions, findings),
+        llm_context=_build_llm_context(case, typologies, transactions, findings),
     )
 
 
@@ -80,16 +85,19 @@ def _build_rag_query(
     case: Case,
     typologies: list[str],
     transactions: list[EvidenceTransaction],
+    findings: list[TypologyFinding],
 ) -> str:
     """Compact query for vector search — typology + suspicion theme + txn patterns."""
     txn_types = sorted({txn.txn_type for txn in transactions})
     typology_text = ", ".join(typologies) if typologies else case.typology
     channels = sorted({txn.channel for txn in transactions if txn.channel})
+    rule_ids = ", ".join(f.rule_id for f in findings) or "none"
     return (
         f"FinCEN SAR narrative guidance for typologies: {typology_text}. "
         f"Alert theme: {case.alert_reason}. "
         f"Activity patterns: {', '.join(txn_types) or 'unknown'}; "
-        f"channels: {', '.join(channels) or 'unknown'}."
+        f"channels: {', '.join(channels) or 'unknown'}; "
+        f"triggered rules: {rule_ids}."
     )
 
 
@@ -97,6 +105,7 @@ def _build_llm_context(
     case: Case,
     typologies: list[str],
     transactions: list[EvidenceTransaction],
+    findings: list[TypologyFinding],
 ) -> str:
     """Full factual brief. Downstream prompts must treat this as the sole case evidence."""
     txn_lines = []
@@ -110,6 +119,16 @@ def _build_llm_context(
     txn_block = "\n".join(txn_lines) if txn_lines else "- (no transactions)"
     typology_text = ", ".join(typologies) if typologies else case.typology
 
+    if findings:
+        finding_lines = [
+            f"- {f.rule_id}: {f.finding} "
+            f"(evidence: {', '.join(f.evidence_txn_refs) or 'n/a'})"
+            for f in findings
+        ]
+        findings_block = "\n".join(finding_lines)
+    else:
+        findings_block = "- (no deterministic typology rules triggered)"
+
     return (
         f"Alert {case.external_alert_id} | jurisdiction={case.jurisdiction} | "
         f"typologies=[{typology_text}] | risk_score={case.risk_score}.\n"
@@ -118,5 +137,6 @@ def _build_llm_context(
         f"Customer: {case.customer_name} ({case.customer_id}), "
         f"occupation={case.customer_occupation}, country={case.customer_country}.\n"
         f"Expected activity: {case.customer_expected_activity}\n"
+        f"Verified typology findings:\n{findings_block}\n"
         f"Transactions:\n{txn_block}"
     )

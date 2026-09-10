@@ -196,10 +196,10 @@ def test_generate_draft_api_returns_400_on_hallucinated_txn(client, analyst_toke
         {
             "who": "x",
             "what": "TXN-HOAX",
-            "when": "",
-            "where": "",
-            "why": "",
-            "how": "",
+            "when": "July 2026",
+            "where": "Unknown",
+            "why": "Suspicious",
+            "how": "Unknown",
             "full_narrative": "TXN-HOAX",
             "evidence_txn_refs": ["TXN-1001"],
         }

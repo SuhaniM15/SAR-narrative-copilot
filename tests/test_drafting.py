@@ -106,6 +106,7 @@ def test_prompt_includes_evidence_and_policy_not_mixed_wrongly():
     user = messages[1].content
     assert "CASE EVIDENCE" in user
     assert "POLICY CONTEXT" in user
+    assert "VERIFIED TYPOLOGY FINDINGS" in user
     assert "TXN-1001" in user
     assert "Jordan Hale" in user
     assert "Who What When Where Why How" in user
@@ -115,11 +116,11 @@ def test_grounding_rejects_invented_txn_in_prose():
     narrative = StructuredNarrative(
         who="Unknown person",
         what="Used TXN-9999 which does not exist",
-        when="",
-        where="",
-        why="",
-        how="",
-        full_narrative="",
+        when="July 2026",
+        where="Miami, FL",
+        why="Inconsistent activity",
+        how="Cash then wire",
+        full_narrative="Subject used TXN-9999.",
         evidence_txn_refs=["TXN-1001"],
     )
     with pytest.raises(GroundingError):
@@ -130,9 +131,29 @@ def test_grounding_rejects_invented_declared_refs():
     narrative = StructuredNarrative(
         who="Jordan Hale",
         what="Deposit",
+        when="July 2026",
+        where="Miami",
+        why="Pattern",
+        how="Cash",
+        full_narrative="Deposit activity noted.",
         evidence_txn_refs=["TXN-1001", "TXN-FAKE"],
     )
     with pytest.raises(GroundingError):
+        validate_narrative_grounding(narrative, ["TXN-1001", "TXN-1004"])
+
+
+def test_grounding_rejects_empty_required_sections():
+    narrative = StructuredNarrative(
+        who="Jordan Hale",
+        what="Deposit",
+        when="",
+        where="Miami",
+        why="Pattern",
+        how="Cash",
+        full_narrative="Narrative",
+        evidence_txn_refs=["TXN-1001"],
+    )
+    with pytest.raises(GroundingError, match="missing required"):
         validate_narrative_grounding(narrative, ["TXN-1001", "TXN-1004"])
 
 
@@ -145,6 +166,9 @@ def test_generate_structured_draft_with_fake_llm():
     assert "TXN-1001" in result.narrative.evidence_txn_refs
     assert result.citations[0].doc_id == "fincen_5ws"
     assert len(llm.calls) == 1
+    # PII masking applied to LLM prompt by default
+    assert "Jordan Hale" not in llm.calls[0][1].content
+    assert "<CUSTOMER_001>" in llm.calls[0][1].content
 
 
 def test_generate_structured_draft_fails_on_hallucinated_txn():
@@ -152,14 +176,20 @@ def test_generate_structured_draft_fails_on_hallucinated_txn():
         {
             "who": "Someone",
             "what": "Mention of TXN-HOAX",
-            "when": "",
-            "where": "",
-            "why": "",
-            "how": "",
+            "when": "July 2026",
+            "where": "Unknown",
+            "why": "Suspicious",
+            "how": "Unknown method",
             "full_narrative": "TXN-HOAX happened",
             "evidence_txn_refs": ["TXN-1001"],
         }
     )
     llm = FakeLLMAdapter(bad)
     with pytest.raises(DraftValidationError, match="allow-list"):
+        generate_structured_draft(_pack(), _retrieval(), llm=llm)
+
+
+def test_generate_structured_draft_rejects_non_json():
+    llm = FakeLLMAdapter("not-json {{{")
+    with pytest.raises(DraftValidationError, match="non-JSON"):
         generate_structured_draft(_pack(), _retrieval(), llm=llm)

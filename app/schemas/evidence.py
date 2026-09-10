@@ -42,6 +42,14 @@ class EvidenceCaseMeta(BaseModel):
     risk_score: Optional[float] = None
 
 
+class TypologyFinding(BaseModel):
+    """Deterministic rule hit — verified before the LLM sees the case."""
+
+    rule_id: str
+    finding: str
+    evidence_txn_refs: list[str] = Field(default_factory=list)
+
+
 class EvidencePack(BaseModel):
     """Structured case brief for RAG query + LLM prompting."""
 
@@ -52,6 +60,8 @@ class EvidencePack(BaseModel):
     typologies: list[str] = Field(default_factory=list)
     # Hard allow-list used later to reject invented transaction IDs in drafts
     allowed_txn_refs: list[str] = Field(default_factory=list)
+    # Deterministic typology rule findings (explainable; not ML)
+    findings: list[TypologyFinding] = Field(default_factory=list)
     # Short retrieval query — optimized for similarity search, not full detail
     rag_query: str = ""
     # Full factual brief — the only case facts the LLM may use

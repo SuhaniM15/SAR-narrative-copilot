@@ -23,8 +23,13 @@ from app.services.drafting import (
 from app.services.evidence import build_evidence_pack
 from app.services.retrieval import retrieve_policy_context
 
-# Statuses where regeneration is allowed (not mid-review / terminal).
-_GENERATABLE_STATUSES = {CaseStatus.OPEN.value, CaseStatus.DRAFTED.value}
+# Statuses where regeneration is allowed (not mid-review / approved).
+# Rejected cases may be revised by generating a new draft version.
+_GENERATABLE_STATUSES = {
+    CaseStatus.OPEN.value,
+    CaseStatus.DRAFTED.value,
+    CaseStatus.REJECTED.value,
+}
 
 
 class GenerationNotAllowed(ValueError):
@@ -57,6 +62,7 @@ def generate_and_persist_draft(
         )
 
     pack = build_evidence_pack(case)
+    # RAG uses the unmasked pack (no customer PII in typical rag_query).
     retrieval = retrieve_policy_context(pack, store=store)
 
     if not retrieval.citations:
@@ -65,6 +71,7 @@ def generate_and_persist_draft(
             "Rebuild the knowledge index or check knowledge docs."
         )
 
+    # generate_structured_draft applies PII masking to the LLM-bound copy.
     result = generate_structured_draft(pack, retrieval, llm=llm)
 
     next_version = (max((d.version for d in case.drafts), default=0) + 1)
@@ -104,6 +111,8 @@ def generate_and_persist_draft(
             "model_name": result.model_name,
             "citation_ids": [c.doc_id for c in result.citations],
             "evidence_txn_refs": narrative.evidence_txn_refs,
+            "typology_findings": [f.model_dump() for f in pack.findings],
+            "pii_masked_for_llm": True,
             "grounding_notes": result.grounding_notes,
             "rag_query": result.rag_query,
             "status": case.status,
