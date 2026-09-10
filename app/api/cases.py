@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 
-from app.adapters.llm import LLMAdapter
+from app.adapters.llm import LLMAdapter  # noqa: F401 — kept for type clarity in generate route
 from app.api.deps import CurrentUser, DbSession, require_roles
 from app.api.llm_deps import get_llm
 from app.models.audit import AuditEvent
@@ -16,9 +16,10 @@ from app.schemas import (
     DraftOut,
     DraftUpdate,
 )
+from app.schemas.evidence import EvidencePack
 from app.services.drafting import DraftValidationError, UpstreamLLMError
+from app.services.evidence import build_evidence_pack
 from app.services.generation import GenerationNotAllowed, generate_and_persist_draft
-from app.services.audit import log_event
 from app.services import cases as case_service
 
 router = APIRouter(prefix="/cases", tags=["cases"])
@@ -70,6 +71,22 @@ def list_drafts(
     return case.drafts
 
 
+@router.get("/{case_id}/evidence", response_model=EvidencePack)
+def get_case_evidence(
+    case_id: int,
+    db: DbSession,
+    _: User = Depends(require_roles(UserRole.ANALYST, UserRole.REVIEWER, UserRole.ADMIN)),
+) -> EvidencePack:
+    """Return the unmasked evidence pack (incl. deterministic typology findings).
+
+    PII masking applies only to the LLM-bound copy during generate-draft.
+    """
+    case = case_service.get_case(db, case_id)
+    if not case:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found")
+    return build_evidence_pack(case)
+
+
 @router.patch("/{case_id}/draft", response_model=DraftOut)
 def update_latest_draft(
     case_id: int,
@@ -80,25 +97,10 @@ def update_latest_draft(
     case = case_service.get_case(db, case_id)
     if not case:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found")
-    if not case.drafts:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No draft exists yet")
-
-    draft = case.drafts[-1]
-    updates = payload.model_dump(exclude_unset=True)
-    for key, value in updates.items():
-        setattr(draft, key, value)
-
-    log_event(
-        db,
-        event_type="DRAFT_EDITED",
-        summary=f"Draft v{draft.version} edited for case {case.external_alert_id}",
-        actor=current_user,
-        entity_id=case.id,
-        detail={"draft_id": draft.id, "fields": list(updates.keys())},
-    )
-    db.commit()
-    db.refresh(draft)
-    return draft
+    try:
+        return case_service.edit_latest_draft(db, case, current_user, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.post("/{case_id}/submit", response_model=CaseOut)

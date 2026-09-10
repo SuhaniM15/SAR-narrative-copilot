@@ -1,7 +1,8 @@
-"""Grounding checks — reject invented transaction references.
+"""Grounding checks — reject invented transaction references and incomplete drafts.
 
 Interview point: LLMs hallucinate IDs. We treat txn refs as a closed allow-list
 and fail closed when the draft cites something not in the evidence pack.
+Required Who/What/When/Where/Why/How sections must be non-empty before save.
 """
 
 from __future__ import annotations
@@ -13,9 +14,11 @@ from app.schemas.drafting import StructuredNarrative
 # Matches refs like TXN-1001, T1, ALT-style left alone; focused on TXN-* plus generic allow-list membership
 _TXN_REF_PATTERN = re.compile(r"\bTXN-[A-Za-z0-9_-]+\b", re.IGNORECASE)
 
+_REQUIRED_SECTIONS = ("who", "what", "when", "where", "why", "how", "full_narrative")
+
 
 class GroundingError(ValueError):
-    """Draft cited transaction evidence that is not in the allow-list."""
+    """Draft failed deterministic grounding / completeness validation."""
 
 
 def extract_txn_refs_from_text(*parts: str) -> set[str]:
@@ -27,16 +30,31 @@ def extract_txn_refs_from_text(*parts: str) -> set[str]:
     return found
 
 
+def validate_required_sections(narrative: StructuredNarrative) -> None:
+    """Fail closed if any required 5W + How / full narrative field is blank."""
+    missing = [
+        name
+        for name in _REQUIRED_SECTIONS
+        if not (getattr(narrative, name, None) or "").strip()
+    ]
+    if missing:
+        raise GroundingError(
+            f"Draft missing required non-empty sections: {missing}"
+        )
+
+
 def validate_narrative_grounding(
     narrative: StructuredNarrative,
     allowed_txn_refs: list[str],
 ) -> list[str]:
-    """Return warning notes; raise GroundingError on invented TXN-* citations."""
+    """Return warning notes; raise GroundingError on invented TXN-* citations or empty sections."""
+    validate_required_sections(narrative)
+
     allowed_map = {ref.upper(): ref for ref in allowed_txn_refs}
     allowed_upper = set(allowed_map.keys())
     notes: list[str] = []
 
-    # Normalize model-declared refs
+    # Normalize model-declared refs — must belong to this case allow-list
     cleaned_declared: list[str] = []
     invented_declared: list[str] = []
     for ref in narrative.evidence_txn_refs:

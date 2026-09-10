@@ -403,7 +403,7 @@ def render_draft_tab(client: SarApiClient, token: str, case: dict, drafts: list)
             return
 
         st.markdown(
-            f"##### Draft v{latest['version']} · model=`{latest.get('model_name')}`"
+            f"##### Draft v{latest['version']}"
         )
 
         if can_analyst and status in {"open", "drafted"}:

@@ -80,3 +80,5 @@ def test_build_evidence_pack_separates_rag_query_and_llm_context():
     assert "TXN-1004" in pack.llm_context
     assert "Jordan Hale" in pack.llm_context
     assert "Near-threshold deposits then offshore wire" in pack.llm_context
+    assert "Verified typology findings" in pack.llm_context
+    assert any(f.rule_id.startswith("STRUCT") or f.rule_id.startswith("LAYER") for f in pack.findings)
